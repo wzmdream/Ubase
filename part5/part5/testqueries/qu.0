@@ -1,0 +1,65 @@
+create table student(id char(9),name char(20),gender char(2),age int,grade real,class_id char(7));
+
+help;
+
+help table student;
+
+!ls
+
+print table student;
+
+select id,name,gender,age,grade,class_id from student;
+
+insert into student(id,name,gender,age,grade,class_id) values("034632214","贾晓丽","男",24,80.5,"0346321");
+insert into student(id,name,gender,age,grade,class_id) values("034632219","黄  源","男",24,90.0,"0346322");
+insert into student(id,name,gender,age,grade,class_id) values("034632251","田  雪","女",24,89.5,"0346324");
+insert into student(id,name,gender,age,grade,class_id) values("034632256","李兴成","男",24,88.5,"0346324");
+insert into student(id,name,gender,age,grade,class_id) values("034632260","王文婷","女",24,87.5,"0346324");
+insert into student(id,name,gender,age,grade,class_id) values("034632261","田秀钰","女",24,86.5,"0346324");
+insert into student(id,name,gender,age,grade,class_id) values("034632271","唐  征","男",24,85.5,"0346324");
+insert into student(id,name,gender,age,grade,class_id) values("034632277","唐建国","男",24,84.5,"0346324");
+insert into student(id,name,gender,age,grade,class_id) values("034632278","王  雷","男",24,83.5,"0346324");
+insert into student(id,name,gender,age,grade,class_id) values("034632279","高广智","男",24,82.5,"0346324");
+insert into student(id,name,gender,age,grade,class_id) values("034632280","袁  杰","男",24,81.5,"0346324");
+insert into student(id,name,gender,age,grade,class_id) values("y20040001","杨  挺","男",24,95.5,"yjs2004");
+insert into student(id,name,gender,age,grade,class_id) values("y20040002","司红敏","女",24,94.5,"yjs2004");
+insert into student(id,name,gender,age,grade,class_id) values("y20040003","冉慧敏","女",24,93.05,"yjs2004");
+insert into student(id,name,gender,age,grade,class_id) values("y20050001","冯向萍","女",24,92.15,"yjs2005");
+insert into student(id,name,gender,age,grade,class_id) values("y20050002","李  萍","女",24,91.12,"yjs2005");
+insert into student(id,name,gender,age,grade,class_id) values("y20050003","朱  平","男",24,90.88,"yjs2005");
+insert into student(name,gender,age) values("张太红","男",42);
+
+print table student;
+
+create table class(class_id char(7),name char(20));
+
+insert into class(class_id,name) values("0346321","计科031班");
+insert into class(class_id,name) values("0346322","计科032班");
+insert into class(class_id,name) values("0346324","计科034班");
+insert into class(class_id,name) values("yjs2004","2004级研究生");
+insert into class(class_id,name) values("yjs2005","2005级研究生");
+
+print table class;
+
+select student.id,student.name,class.name from student,class where student.class_id=class.class_id;
+
+update student set age=30 where gender="男";
+select id,name,gender,age,grade,class_id from student;
+
+update student set age=28 where grade>90;
+select id,name,gender,age,grade,class_id from student;
+
+update student set age=22 where age=30;
+select id,name,gender,age,grade,class_id from student;
+
+delete from student where gender="男";
+select id,name,gender,age,grade,class_id from student;
+
+delete from student where grade=90;
+select id,name,gender,age,grade,class_id from student;
+
+delete from student where age > 28;
+select id,name,gender,age,grade,class_id from student;
+
+delete from student where grade>87;
+select id,name,gender,age,grade,class_id from student;

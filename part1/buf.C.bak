@@ -1,0 +1,253 @@
+#include <memory.h>
+#include <unistd.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <fcntl.h>
+#include <iostream>
+#include <stdio.h>
+#include "page.h"
+#include "buf.h"
+
+#define ASSERT(c)  { if (!(c)) { \
+		       cerr << "At line " << __LINE__ << ":" << endl << "  "; \
+                       cerr << "This condition should hold: " #c << endl; \
+                       exit(1); \
+		     } \
+                   }
+
+//----------------------------------------
+// Constructor of the class BufMgr
+//----------------------------------------
+
+BufMgr::BufMgr(const int bufs)
+{ 
+	 int b;
+	 int t = 1;
+	 int i;
+	 clockHand=0;
+	 numBufs=bufs;
+	 bufStats.pinnedFrame=0;                                                //初始化缓存池中钉住的帧数
+	 bufPool= new Page[bufs];                                               //分配缓冲池大小
+	 memset(bufPool, 0,  numBufs * sizeof(Page));                 // 初始化缓存池(内容全部置为0)
+	 bufTable = new BufDesc[bufs];                                       //分配缓存状态描述器
+	 for (int i = 0; i < numBufs; i++)
+	  {
+	 	 bufTable[i].frameNo = i;                                              //初始化帧编号
+	 	 
+	 	}
+	 int k = (int)(1.2 *  numBufs);                                            //求出一个素数k
+	 if(k % 2 == 0)
+	 k = k - 1;
+	 while(t)
+	   { 
+		 	k += 2;
+		   for(i = 3; i <k/2; i=i+2)
+		   if(k % i == 0)
+		    break;
+		    
+		   if (i ==k/2)
+			  t=0; 
+	  }
+	      b=k;
+	 hashTable= new BufHashTbl(b);                                           
+ } 
+ 
+BufMgr::~BufMgr() 
+{ 
+	   for(int i = 0; i < numBufs; i++)
+	   if(bufTable[i].dirty == true)                                                //假如是脏页就写回磁盘
+	   	{  
+		     bufTable[i].file->writePage(bufTable[i].pageNo,&bufPool [i]);
+		   	 bufTable[i].dirty=false;
+	    }
+	    
+	  delete [] bufTable;
+	  delete [] bufPool;
+	  delete  hashTable;
+ }
+void BufMgr::BufDump() 
+{
+   
+
+
+
+}
+
+
+const Status BufMgr::allocBuf(int& frame) 
+{  
+	Status a;                                            //定义一个状态来作为返回值
+	if(bufStats.pinnedFrame == numBufs)                  //当它所有的缓存池的针都被定住就返回错误
+		return BUFFEREXCEEDED;
+
+	while(true)
+	{
+		if(bufTable[clockHand].valid == false)                 //是否为有效页
+        {
+				bufTable[clockHand].Clear();                         //初始化节点
+			    frame = bufTable[clockHand].frameNo;
+				break;
+         }
+         
+  	 if (bufTable[clockHand].refbit == true)                   //是否被访问过
+  		{
+  			 bufTable[clockHand].refbit = false;
+	  		 advanceClock();                                        //让时钟走一步
+	  		 continue;                                             	//跳出这次循环继续进行下次循环
+  		}  
+  		
+	    if(bufTable[clockHand].pinCnt!=0)                            //是否被订住
+	    {
+			advanceClock();
+		  	continue;
+	    }
+	   
+	   if(bufTable[clockHand].dirty == true)                        //是否为脏页
+  	   { 
+		 	   if((a=bufTable[clockHand].file->writePage(bufTable[clockHand].pageNo,&bufPool[clockHand]))!=OK)  //如果是脏的就写回磁盘
+		 		    return a;
+  	    }
+ 	   if ((a=hashTable->remove(bufTable[clockHand].file,bufTable[clockHand].pageNo))!=OK)   //删除它的映射关系
+         	 return a;
+  		bufTable[clockHand].Clear();
+    	frame=bufTable[clockHand].frameNo;                         //把bufTable[clockHand]针号给frame返回
+    	break;                                                                         //跳出循环
+	}
+	 return OK;
+}
+
+ // release an unused buffer frame - used in error conditions
+const void BufMgr::releaseBuf(int frame) 
+{
+    bufTable[frame].Clear();  
+}
+	
+const Status BufMgr::readPage(File* file, const int PageNo, Page*& page)
+  {  
+	  	Status  a;
+	    int framNo;
+	  if((a=hashTable->lookup(file,PageNo,framNo))!=OK)  //通过哈希表来查找这个页是否在缓存池中
+	     {
+		    	if((a=allocBuf(framNo))!=OK)                            //分配一个可用针
+					return  a;
+					
+				if( ( a= file->readPage(PageNo,&bufPool[framNo] ))!=OK) 
+				{
+						releaseBuf(framNo) ;
+					return a;
+				}
+				
+				 if((a=hashTable->insert(file,PageNo,framNo))!=OK)            //取得映射关系
+				{
+						releaseBuf(framNo) ;
+					return a;
+				}
+				bufTable[framNo].Set(file,PageNo)	;
+				bufStats.pinnedFrame++;                                       //缓冲池的总的摁钉数加1                 
+				page=&bufPool[framNo] ;
+				return OK;   
+   	  }
+  	else
+	  	{
+		      bufTable[framNo].refbit=true; 
+		      if(bufTable[framNo].pinCnt==0)
+		      bufStats.pinnedFrame++;                                                    //缓冲池的总的摁钉数加1
+		   		bufTable[framNo].pinCnt++; //该页的摁钉数加1
+		  	 	page=&bufPool[framNo] ;  
+		       return OK;   
+	    }
+  
+}
+
+   const Status BufMgr::unPinPage(const File* file, const int PageNo, const bool dirty)
+  {
+	     int frame;                                                           //定义一个缓冲针
+	    Status status;
+	    status = hashTable->lookup(file,PageNo,frame);  //通过哈希表来查找所对应的文件和页号是否在缓冲池中
+		if(status != OK)
+	       return HASHNOTFOUND;
+	       
+	    if(bufTable[frame].pinCnt == 0)
+	       return PAGENOTPINNED;
+	       
+	     if(dirty  == true)
+		    bufTable[frame].dirty = dirty;
+	     bufTable[frame].pinCnt-- ;
+	     
+	     if(bufTable[frame].pinCnt == 0) //当它 bufTable[frame].pinCnt-- 为0时就说明这页没有被定住，那么缓冲池的总的被定住的针就该减1
+	        bufStats.pinnedFrame-- ;
+	       return OK;
+	       
+	 }
+	 
+const Status BufMgr::flushFile(const File* file) 
+{
+		int i;
+		Status a;
+		for(i=0;i<numBufs;i++)    //扫描该文件的所有的页
+		if(bufTable[i].file==file)
+		 {
+			 	if(bufTable[i].pinCnt!=0)
+			 		return PAGEPINNED;
+			 	if(bufTable[i].dirty==true)             //判断它的dirty位
+			 	  a=bufTable[i].file->writePage(bufTable[i].pageNo,&bufPool[i]);  // 写回磁盘
+			 	if(a!= OK)
+		            return a;
+		       else 
+		          bufTable[i].dirty=false;
+		      if((a=hashTable->remove(file,bufTable[i].pageNo))!=OK)      //删除映射关系
+		          	return a;
+		      bufTable[i].Clear();                                                                //初始化节点
+		       	  continue;         //跳出本次循环继续进行下一次循环 实际上就是扫描该文件的下一个页
+	       }
+	            return OK;
+}
+
+const Status BufMgr::disposePage(File* file, const int pageNo) 
+	{   
+		Status a ;
+	    int index;                                                                  //定义一个缓冲针
+	    if((a= hashTable->lookup(file,pageNo,index))!=OK)  //通过哈希表来查找所对应的文件和页号是否在缓冲池假如不在就返回a
+			return a;
+		bufTable[index].Clear();   
+		
+	   if(bufTable[index].pinCnt!=0)
+			 return PAGEPINNED;
+	   return OK;
+	
+	}
+	 
+
+const Status BufMgr::allocPage(File* file, int& pageNo, Page*& page) 
+	{	
+		int apageNo;                                            //页号
+		Status status ;
+		int frame;
+		if((status=file->allocatePage(apageNo))!=OK) return status;  //通过allocatePage(apageNo))带回apageNo
+			
+	  	if ((status =allocBuf(frame))!=OK) return status;
+	  		
+	 	if ((status=hashTable->insert(file,apageNo,frame))!=OK)  return status; //插入映射关系
+	   
+	    bufTable[frame].Set(file,apageNo);	
+	  	pageNo=apageNo;                               //把apageNo给pageNo带回去
+	  	page=&bufPool[frame];
+	  	bufStats.pinnedFrame++;                      //缓冲池的总的摁钉数加1
+	  	return OK;
+   }
+   
+void BufMgr::printSelf(void) {
+
+  BufDesc* tmpbuf;
+  
+  cout << endl << "Print buffer...\n";
+  for (int i=0; i<numBufs; i++) {
+    tmpbuf = &(bufTable[i]);
+    cout << i << "\t" << (char*)(&bufPool[i]) 
+      << "\tpinCnt: " << tmpbuf->pinCnt;
+    
+    if (tmpbuf->valid == true)
+      cout << "\tvalid\n";
+    cout << endl;
+  };
+}
